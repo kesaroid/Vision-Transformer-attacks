@@ -7,7 +7,7 @@ import os
 import numpy
 import torch
 import random
-from tqdm import tqdm
+# from tqdm import tqdm
 import torchvision
 import torch.nn as nn
 import torch.nn.functional as F
@@ -25,7 +25,7 @@ ROOT = '.'
 
 test_loader = torch.utils.data.DataLoader(torchvision.datasets.CIFAR10(root=ROOT, train=False, transform=transforms.Compose([
                         transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]), download=True),
-                        batch_size=64,
+                        batch_size=2,
                         shuffle=False,
                         num_workers=4
                         )
@@ -45,7 +45,7 @@ def test(model, test_loader, attack):
     model.eval()
     correct = 0
     avg_act = 0
-    for data, target in tqdm(test_loader):
+    for data, target in test_loader:
         data = data.cuda()
         target = target.cuda()
         
@@ -56,13 +56,15 @@ def test(model, test_loader, attack):
             r, loop_i, label_orig, label_pert, pert_image = deepfool(torch.tensor(data,requires_grad =True), model)
 
         with torch.no_grad():
-            if not attack: pert_image = data 
+            if not attack: 
+                pert_image = data 
             out = torch.nn.Softmax(dim=1).cuda()(model(pert_image))
                     
-        act, pred = out.max(1, keepdim=True)
-        assert label_orig == target.cpu().numpy()
-        assert label_pert == pred.cpu().numpy()
-        correct += pred.eq(target.view_as(pred)).sum().cpu()
+        act, pred = out.max(1)
+        # Sanity check
+        # assert (label_orig == target.detach().cpu().numpy()).all()
+        # assert (label_pert == pred.detach().cpu().numpy()).all()
+        correct += pred.eq(target.view_as(pred)).sum()
         avg_act += act.sum().data
 
     return 100. * float(correct) / len(test_loader.dataset),100. * float(avg_act) / len(test_loader.dataset)
@@ -81,4 +83,5 @@ if __name__=="__main__":
         torch.cuda.empty_cache();
         acc,_ = test(model,test_loader, attack)
         
+
         print('--------- Test accuracy on {} attack: {} ---------'.format(attack, acc))
