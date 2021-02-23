@@ -25,7 +25,7 @@ ROOT = '.'
 
 test_loader = torch.utils.data.DataLoader(torchvision.datasets.CIFAR10(root=ROOT, train=False, transform=transforms.Compose([
                         transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]), download=True),
-                        batch_size=1,
+                        batch_size=64,
                         shuffle=False,
                         num_workers=4
                         )
@@ -56,6 +56,7 @@ def test(model, test_loader, attack):
             r, loop_i, label_orig, label_pert, pert_image = deepfool(torch.tensor(data,requires_grad =True), model)
 
         with torch.no_grad():
+            if not attack: pert_image = data 
             out = torch.nn.Softmax(dim=1).cuda()(model(pert_image))
                     
         act, pred = out.max(1, keepdim=True)
@@ -79,5 +80,5 @@ if __name__=="__main__":
             del chk
         torch.cuda.empty_cache();
         acc,_ = test(model,test_loader, attack)
-        print('Test accuracy: ',acc)
-
+        
+        print('--------- Test accuracy on {} attack: {} ---------'.format(attack, acc))
