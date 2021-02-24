@@ -25,7 +25,7 @@ ROOT = '.'
 
 test_loader = torch.utils.data.DataLoader(torchvision.datasets.CIFAR10(root=ROOT, train=False, transform=transforms.Compose([
                         transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]), download=True),
-                        batch_size=2,
+                        batch_size=16,
                         shuffle=False,
                         num_workers=4
                         )
@@ -41,7 +41,7 @@ class NN(nn.Module):
     def forward(self,x):
         return self.model(x)
 
-def test(model, test_loader, attack):
+def test(model, test_loader, attack=None):
     model.eval()
     correct = 0
     avg_act = 0
