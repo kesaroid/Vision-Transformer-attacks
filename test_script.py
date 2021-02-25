@@ -7,7 +7,7 @@ import os
 import numpy
 import torch
 import random
-# from tqdm import tqdm
+from tqdm import tqdm
 import torchvision
 import torch.nn as nn
 import torch.nn.functional as F
@@ -55,13 +55,25 @@ def test(model, test_loader, attack=None):
                         alpha=pgd_params['alpha'],
                         iters=pgd_params['iterations'])
 
-    for data, target in test_loader:
+    for data, target in tqdm(test_loader):
         data = data.cuda()
         target = target.cuda()
         
         if attack == 'sta':
             sta = attacks.SpatialTransformAttack(model, num_classes=10)
             pert_image = sta.perturb(data)
+        elif attack == 'jacobian':
+            jacobian = attacks.JacobianSaliencyMapAttack(model, num_classes=10)
+            pert_image = jacobian.perturb(data, target)
+        elif attack == 'carlini':
+            carlini = attacks.CarliniWagnerL2Attack(model, num_classes=10)
+            pert_image = carlini.perturb(data)
+        elif attack == 'lbfgs':
+            lbfgs = attacks.LBFGSAttack(model, num_classes=10, batch_size=data.shape[0])
+            pert_image = lbfgs.perturb(data)
+        elif attack == 'pixel':
+            pixel = attacks.SinglePixelAttack(model)
+            pert_image = pixel.perturb(data)
         elif attack == 'deepfool':
             r, loop_i, label_orig, label_pert, pert_image = deepfool(torch.tensor(data,requires_grad =True), model)
         elif attack == 'pgd':
@@ -85,16 +97,22 @@ def test(model, test_loader, attack=None):
 if __name__=="__main__":
         model = NN()
         model.cuda()
-
-        attack = 'pgd'
-        pgd_params = {'norm': 'inf', 'eps': 6, 'alpha': 1, 'iterations': 20}
-
-        if os.path.isfile("mdl.pth"):
-            chk = torch.load("mdl.pth")
-            model.load_state_dict(chk["model"]);
-            del chk
-        torch.cuda.empty_cache();
-        acc,_ = test(model,test_loader, attack)
         
+        for attack in ['sta', 'jacobian', 'carlini', 'lbfgs', 'pixel']:
+            # attack = 'pixel'
+            try:
+                pgd_params = {'norm': 'inf', 'eps': 6, 'alpha': 1, 'iterations': 20}
 
-        print('--------- Test accuracy on {} attack: {} ---------'.format(attack, acc))
+                if os.path.isfile("mdl.pth"):
+                    chk = torch.load("mdl.pth")
+                    model.load_state_dict(chk["model"]);
+                    del chk
+                torch.cuda.empty_cache();
+                acc,_ = test(model,test_loader, attack)
+                
+
+                print('--------- Test accuracy on {} attack: {} ---------'.format(attack, acc))
+            except Exception as e:
+                print('--------- Test accuracy on {} attack: Failed ---------'.format(attack))
+                print('Exception: ', e)
+                continue
