@@ -18,14 +18,16 @@ import torch.nn.init as nninit
 from torch.nn.parameter import Parameter
 import torchvision.transforms.functional as TF
 from vit import VisionTransformer
+
 from advertorch import attacks
 from deepfool import deepfool
+from pgd import PGD
 
 ROOT = '.'
 
 test_loader = torch.utils.data.DataLoader(torchvision.datasets.CIFAR10(root=ROOT, train=False, transform=transforms.Compose([
                         transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]), download=True),
-                        batch_size=16,
+                        batch_size=1,
                         shuffle=False,
                         num_workers=4
                         )
@@ -45,6 +47,14 @@ def test(model, test_loader, attack=None):
     model.eval()
     correct = 0
     avg_act = 0
+
+    if attack == 'pgd':
+        pgd_attack = PGD(model, "cuda:0",
+                        norm=pgd_params['norm'],
+                        eps=pgd_params['eps'],
+                        alpha=pgd_params['alpha'],
+                        iters=pgd_params['iterations'])
+
     for data, target in test_loader:
         data = data.cuda()
         target = target.cuda()
@@ -54,6 +64,8 @@ def test(model, test_loader, attack=None):
             pert_image = sta.perturb(data)
         elif attack == 'deepfool':
             r, loop_i, label_orig, label_pert, pert_image = deepfool(torch.tensor(data,requires_grad =True), model)
+        elif attack == 'pgd':
+            pert_image = pgd_attack(data, target)
 
         with torch.no_grad():
             if not attack: 
@@ -74,7 +86,8 @@ if __name__=="__main__":
         model = NN()
         model.cuda()
 
-        attack = 'deepfool'
+        attack = 'pgd'
+        pgd_params = {'norm': 'inf', 'eps': 6, 'alpha': 1, 'iterations': 20}
 
         if os.path.isfile("mdl.pth"):
             chk = torch.load("mdl.pth")
