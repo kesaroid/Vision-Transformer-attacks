@@ -7,7 +7,6 @@ import os
 import numpy
 import torch
 import random
-from tqdm import tqdm
 import torchvision
 import torch.nn as nn
 import torch.nn.functional as F
@@ -18,19 +17,14 @@ import torch.nn.init as nninit
 from torch.nn.parameter import Parameter
 import torchvision.transforms.functional as TF
 from vit import VisionTransformer
+import cv2
 
 from advertorch import attacks
 from deepfool import deepfool
+from MIFGSM import MIFGSM
 from pgd import PGD
 
 ROOT = '.'
-
-test_loader = torch.utils.data.DataLoader(torchvision.datasets.CIFAR10(root=ROOT, train=False, transform=transforms.Compose([
-                        transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]), download=True),
-                        batch_size=1,
-                        shuffle=False,
-                        num_workers=4
-                        )
 
 class NN(nn.Module):
     def __init__(self):
@@ -43,10 +37,24 @@ class NN(nn.Module):
     def forward(self,x):
         return self.model(x)
 
-def test(model, test_loader, attack=None):
+def test(model, attack=None, output='Results', max_perturb=6):
     model.eval()
     correct = 0
     avg_act = 0
+
+    batch_size = 1
+    mean = (0.5, 0.5, 0.5)
+    std = (0.5, 0.5, 0.5)
+
+    iterations = int(10 / batch_size) + 1
+
+    test_loader = torch.utils.data.DataLoader(torchvision.datasets.CIFAR10(root=ROOT, train=False, transform=transforms.Compose([
+                            transforms.ToTensor(), transforms.Normalize(mean, std)]), download=True),
+                            batch_size=batch_size,
+                            shuffle=False,
+                            num_workers=4
+                        )
+
 
     if attack == 'pgd':
         pgd_attack = PGD(model, "cuda:0",
@@ -54,11 +62,16 @@ def test(model, test_loader, attack=None):
                         eps=pgd_params['eps'],
                         alpha=pgd_params['alpha'],
                         iters=pgd_params['iterations'])
+    elif attack == 'mifgsm':
+        mifgsm = MIFGSM(model, loss_fn=nn.CrossEntropyLoss(),
+                        mean=mean, std=std, 
+                        max_norm=6.0)
 
-    for data, target in tqdm(test_loader):
+    original_image = []; perturb_image = []
+    for i, (data, target) in enumerate(test_loader): # tqdm(test_loader)
         data = data.cuda()
         target = target.cuda()
-        
+
         if attack == 'sta':
             sta = attacks.SpatialTransformAttack(model, num_classes=10)
             pert_image = sta.perturb(data)
@@ -75,9 +88,11 @@ def test(model, test_loader, attack=None):
             pixel = attacks.SinglePixelAttack(model)
             pert_image = pixel.perturb(data)
         elif attack == 'deepfool':
-            r, loop_i, label_orig, label_pert, pert_image = deepfool(torch.tensor(data,requires_grad =True), model)
+            r, loop_i, label_orig, label_pert, pert_image = deepfool(data.clone().detach().requires_grad_(True), model)
         elif attack == 'pgd':
             pert_image = pgd_attack(data, target)
+        elif attack == 'mifgsm':
+            pert_image = mifgsm.attack(data, target)
 
         with torch.no_grad():
             if not attack: 
@@ -91,28 +106,60 @@ def test(model, test_loader, attack=None):
         correct += pred.eq(target.view_as(pred)).sum()
         avg_act += act.sum().data
 
-    return 100. * float(correct) / len(test_loader.dataset),100. * float(avg_act) / len(test_loader.dataset)
+        original_image.append(data.cpu().detach())
+        perturb_image.append(pert_image.cpu().detach())
+            
+        assert len(original_image) == len(perturb_image)
+        if i == iterations: break
+    
+    original_image = torch.cat(original_image, dim=0)
+    perturb_image = torch.cat(perturb_image, dim=0)
+
+    
+    norms = []
+    for i in range(len(original_image)):
+        a = original_image[i]
+        b = perturb_image[i]
+        
+        # sub = torch.subtract(a, b)
+        # norms.append(torch.norm(sub)) # p=np.inf
+
+        if output:
+            if not os.path.exists(output):
+                os.mkdir(output)
+
+            image_a = np.moveaxis(a.clone().cpu().detach().numpy(), 0, -1)
+            image_b = np.moveaxis(b.clone().cpu().detach().numpy(), 0, -1)
+            # Unnormalize image in order to save
+            image_a -= image_a.min(); image_b -= image_b.min() 
+            image_a /= image_a.max(); image_b /= image_b.max()
+            image_a *= 255; image_b *= 255
+            
+            # Check perturbations > max value
+            sub = np.subtract(image_a, image_b)
+            norm = np.linalg.norm(np.ravel(sub), ord=np.inf)
+            if norm > max_perturb:
+                norms.append(norm)
+            cv2.imwrite(os.path.join(output, '{}.jpg'.format(i)), image_b)
+
+    return 100. * float(correct) / len(test_loader.dataset), 100. * float(avg_act) / len(test_loader.dataset), norms
 
 
 if __name__=="__main__":
         model = NN()
         model.cuda()
         
-        for attack in ['sta', 'jacobian', 'carlini', 'lbfgs', 'pixel']:
-            # attack = 'pixel'
-            try:
-                pgd_params = {'norm': 'inf', 'eps': 6, 'alpha': 1, 'iterations': 20}
+        # attack = ['sta', 'jacobian', 'carlini', 'lbfgs', 'pixel']
+        attack = 'mifgsm'
+        pgd_params = {'norm': 'inf', 'eps': 6, 'alpha': 1, 'iterations': 20}
 
-                if os.path.isfile("mdl.pth"):
-                    chk = torch.load("mdl.pth")
-                    model.load_state_dict(chk["model"]);
-                    del chk
-                torch.cuda.empty_cache();
-                acc,_ = test(model,test_loader, attack)
-                
+        if os.path.isfile("mdl.pth"):
+            chk = torch.load("mdl.pth")
+            model.load_state_dict(chk["model"]);
+            del chk
+        torch.cuda.empty_cache();
+        acc,_,norms = test(model, attack)
+        
 
-                print('--------- Test accuracy on {} attack: {} ---------'.format(attack, acc))
-            except Exception as e:
-                print('--------- Test accuracy on {} attack: Failed ---------'.format(attack))
-                print('Exception: ', e)
-                continue
+        print('--------- Test accuracy on {} attack: {} ---------'.format(attack, acc))
+        print('--------- Perturbation norm that go beyond 6: {} ---------'.format(len(norms)))
