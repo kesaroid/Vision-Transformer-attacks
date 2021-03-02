@@ -37,7 +37,7 @@ class NN(nn.Module):
     def forward(self,x):
         return self.model(x)
 
-def test(model, attack=None, output='Results', max_perturb=6, defend=True):
+def test(model, attack=None, defend=False, output='Results', max_perturb=6):
     model.eval()
     correct = 0
     avg_act = 0
@@ -153,14 +153,14 @@ if __name__=="__main__":
     
     # attack = ['sta', 'jacobian', 'carlini', 'lbfgs', 'pixel']
     attack = 'mifgsm'
-    defend = True
+    defend = False
     pgd_params = {'norm': 'inf', 'eps': 6, 'alpha': 1, 'iterations': 20}
 
     if defend:
-        model = NN(img_size=16, patch_size=1)
+        model = NN(img_size=16, patch_size=2)
         model.cuda()
     else:
-        model = NN()
+        model = NN(img_size=32, patch_size=2)
         model.cuda()
 
     if os.path.isfile("mdl.pth"):
@@ -168,7 +168,7 @@ if __name__=="__main__":
         model.load_state_dict(chk["model"]);
         del chk
     torch.cuda.empty_cache();
-    acc,_,norms = test(model, attack)
+    acc,_,norms = test(model, attack, defend)
     
 
     print('--------- Test accuracy on {} attack: {} ---------'.format(attack, acc))
