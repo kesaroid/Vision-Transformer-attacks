@@ -27,7 +27,7 @@ from pgd import PGD
 ROOT = '.'
 
 class NN(nn.Module):
-    def __init__(self, img_size, patch_size):
+    def __init__(self, img_size=32, patch_size=2):
         super(NN, self).__init__()
         self.model = VisionTransformer(
                  img_size=img_size, patch_size=patch_size, in_chans=3, num_classes=10, embed_dim=80, depth=20,
@@ -48,12 +48,8 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6):
 
     iterations = int(10 / batch_size) + 1
 
-    if defend:
-        transformer = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std), transforms.Resize(16,16)])
-    else:
-        transformer = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)])
-
-    test_loader = torch.utils.data.DataLoader(torchvision.datasets.CIFAR10(root=ROOT, train=False, transform=transformer, download=True),
+    test_loader = torch.utils.data.DataLoader(torchvision.datasets.CIFAR10(root=ROOT, train=False, 
+                            transform=transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)]), download=True),
                             batch_size=batch_size,
                             shuffle=False,
                             num_workers=4
@@ -75,7 +71,9 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6):
     for i, (data, target) in enumerate(test_loader): # tqdm(test_loader)
         data = data.cuda()
         target = target.cuda()
-
+        if defend:
+            data16x16 = torch.nn.functional.interpolate(data, size=(16, 16),mode='bilinear', align_corners=False)
+            data = data16x16
         if attack == 'sta':
             sta = attacks.SpatialTransformAttack(model, num_classes=10)
             pert_image = sta.perturb(data)
@@ -152,16 +150,12 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6):
 if __name__=="__main__":
     
     # attack = ['sta', 'jacobian', 'carlini', 'lbfgs', 'pixel']
-    attack = 'mifgsm'
-    defend = False
+    attack = 'deepfool'
+    defend = True
     pgd_params = {'norm': 'inf', 'eps': 6, 'alpha': 1, 'iterations': 20}
 
-    if defend:
-        model = NN(img_size=16, patch_size=2)
-        model.cuda()
-    else:
-        model = NN(img_size=32, patch_size=2)
-        model.cuda()
+    model = NN()
+    model.cuda()      
 
     if os.path.isfile("mdl.pth"):
         chk = torch.load("mdl.pth")

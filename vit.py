@@ -107,8 +107,8 @@ class PatchEmbed(nn.Module):
     def forward(self, x):
         B, C, H, W = x.shape
         # FIXME look at relaxing size constraints
-        assert H == self.img_size[0] and W == self.img_size[1], \
-            f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
+        # assert H == self.img_size[0] and W == self.img_size[1], \
+        #     f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
         x = self.proj(x).flatten(2).transpose(1, 2)
         return x
 
@@ -213,6 +213,9 @@ class VisionTransformer(nn.Module):
     def forward_features(self, x):
         B = x.shape[0]
         x = self.patch_embed(x)
+        if x.shape[1]==64:
+            y=torch.repeat_interleave(x.view(x.shape[0],8,8,x.shape[2]), 2, dim=1)
+            x=torch.repeat_interleave(y, 2, dim=2).view(x.shape[0],256,x.shape[2])
 
         cls_tokens = self.cls_token.expand(B, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
         x = torch.cat((cls_tokens, x), dim=1)
