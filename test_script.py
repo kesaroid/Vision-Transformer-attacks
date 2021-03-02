@@ -27,17 +27,17 @@ from pgd import PGD
 ROOT = '.'
 
 class NN(nn.Module):
-    def __init__(self):
+    def __init__(self, img_size, patch_size):
         super(NN, self).__init__()
         self.model = VisionTransformer(
-        img_size=32, patch_size=2, in_chans=3, num_classes=10, embed_dim=80, depth=20,
+                 img_size=img_size, patch_size=patch_size, in_chans=3, num_classes=10, embed_dim=80, depth=20,
                  num_heads=20, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
                  drop_path_rate=0., hybrid_backbone=None, norm_layer=nn.LayerNorm)
     
     def forward(self,x):
         return self.model(x)
 
-def test(model, attack=None, output='Results', max_perturb=6):
+def test(model, attack=None, output='Results', max_perturb=6, defend=True):
     model.eval()
     correct = 0
     avg_act = 0
@@ -48,8 +48,12 @@ def test(model, attack=None, output='Results', max_perturb=6):
 
     iterations = int(10 / batch_size) + 1
 
-    test_loader = torch.utils.data.DataLoader(torchvision.datasets.CIFAR10(root=ROOT, train=False, transform=transforms.Compose([
-                            transforms.ToTensor(), transforms.Normalize(mean, std)]), download=True),
+    if defend:
+        transformer = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std), transforms.Resize(16,16)])
+    else:
+        transformer = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)])
+
+    test_loader = torch.utils.data.DataLoader(torchvision.datasets.CIFAR10(root=ROOT, train=False, transform=transformer, download=True),
                             batch_size=batch_size,
                             shuffle=False,
                             num_workers=4
@@ -146,20 +150,26 @@ def test(model, attack=None, output='Results', max_perturb=6):
 
 
 if __name__=="__main__":
+    
+    # attack = ['sta', 'jacobian', 'carlini', 'lbfgs', 'pixel']
+    attack = 'mifgsm'
+    defend = True
+    pgd_params = {'norm': 'inf', 'eps': 6, 'alpha': 1, 'iterations': 20}
+
+    if defend:
+        model = NN(img_size=16, patch_size=1)
+        model.cuda()
+    else:
         model = NN()
         model.cuda()
-        
-        # attack = ['sta', 'jacobian', 'carlini', 'lbfgs', 'pixel']
-        attack = 'mifgsm'
-        pgd_params = {'norm': 'inf', 'eps': 6, 'alpha': 1, 'iterations': 20}
 
-        if os.path.isfile("mdl.pth"):
-            chk = torch.load("mdl.pth")
-            model.load_state_dict(chk["model"]);
-            del chk
-        torch.cuda.empty_cache();
-        acc,_,norms = test(model, attack)
-        
+    if os.path.isfile("mdl.pth"):
+        chk = torch.load("mdl.pth")
+        model.load_state_dict(chk["model"]);
+        del chk
+    torch.cuda.empty_cache();
+    acc,_,norms = test(model, attack)
+    
 
-        print('--------- Test accuracy on {} attack: {} ---------'.format(attack, acc))
-        print('--------- Perturbation norm that go beyond 6: {} ---------'.format(len(norms)))
+    print('--------- Test accuracy on {} attack: {} ---------'.format(attack, acc))
+    print('--------- Perturbation norm that go beyond 6: {} ---------'.format(len(norms)))
