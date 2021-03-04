@@ -83,7 +83,7 @@ class MIFGSM():
                 # delta = delta + max_norm_per_iter * noise
                 delta = delta + 2 * noise
                 # constarint2 : force ot satisfy the image range constaint
-                delta = clamp_by_l2_norm(delta, max_norm)
+                delta = l2_clamp(delta, max_norm)
 
             elif norm_type == 'linf':
                 
@@ -121,7 +121,7 @@ def input_pad(x, resize_rate=1.10, diversity_prob=0.3):
     ret = padded if torch.rand(1) < diversity_prob else x
     return ret
 
-def clamp_by_l2_norm(delta, max_norm):
+def l2_clamp(delta, max_norm):
     batch_size = delta.shape[0]
     norm = torch.reshape(torch.norm(torch.reshape(delta, shape=[batch_size, -1]), dim=1), shape=[batch_size, 1, 1, 1])
     # if max_norm > norm, mean current l2 norm of delta statisfy the constraint, no need the rescale

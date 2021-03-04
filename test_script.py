@@ -74,6 +74,8 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6):
         if defend:
             data16x16 = torch.nn.functional.interpolate(data, size=(16, 16),mode='bilinear', align_corners=False)
             data = data16x16
+        
+        # TODO Fix epsilon values for all the following attacks
         if attack == 'sta':
             sta = attacks.SpatialTransformAttack(model, num_classes=10)
             pert_image = sta.perturb(data)
@@ -149,9 +151,10 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6):
 
 if __name__=="__main__":
     
-    # attack = ['sta', 'jacobian', 'carlini', 'lbfgs', 'pixel']
+    # attack = ['sta', 'jacobian', 'carlini', 'lbfgs', 'pixel', 'pgd', 'deepfool', 'mifgsm']
+    # Carlini attack takes v long
     attack = 'deepfool'
-    defend = True
+    defend = False
     pgd_params = {'norm': 'inf', 'eps': 6, 'alpha': 1, 'iterations': 20}
 
     model = NN()
