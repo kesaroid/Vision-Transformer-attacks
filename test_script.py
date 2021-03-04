@@ -46,11 +46,7 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6):
     mean = (0.5, 0.5, 0.5)
     std = (0.5, 0.5, 0.5)
 
-<<<<<<< HEAD
     iterations = int(100 / batch_size) + 1
-=======
-    iterations = int(10 / batch_size) + 1
->>>>>>> e102dcf63e4c92b350f56d2ec4e4b31ae0aaf2cf
 
     test_loader = torch.utils.data.DataLoader(torchvision.datasets.CIFAR10(root=ROOT, train=False, 
                             transform=transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)]), download=True),
@@ -157,11 +153,7 @@ if __name__=="__main__":
     
     # attack = ['sta', 'jacobian', 'carlini', 'lbfgs', 'pixel', 'pgd', 'deepfool', 'mifgsm']
     # Carlini attack takes v long
-<<<<<<< HEAD
     attack = 'pgd'
-=======
-    attack = 'deepfool'
->>>>>>> e102dcf63e4c92b350f56d2ec4e4b31ae0aaf2cf
     defend = False
     pgd_params = {'norm': 'inf', 'eps': 6, 'alpha': 1, 'iterations': 20}
 
@@ -172,13 +164,9 @@ if __name__=="__main__":
         chk = torch.load("mdl.pth")
         model.load_state_dict(chk["model"]);
         del chk
-    torch.cuda.empty_cache();
-<<<<<<< HEAD
-    acc,_,norms = test(model, attack, defend, 'Results_{}'.format(attack))
-=======
-    acc,_,norms = test(model, attack, defend)
->>>>>>> e102dcf63e4c92b350f56d2ec4e4b31ae0aaf2cf
-    
+    torch.cuda.empty_cache()
+
+    acc, _, norms = test(model, attack, defend, 'Results_{}'.format(attack))
 
     print('--------- Test accuracy on {} attack: {} ---------'.format(attack, acc))
     print('--------- Perturbation norm that go beyond 6: {} ---------'.format(len(norms)))
