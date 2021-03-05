@@ -17,7 +17,6 @@ import torch.nn.init as nninit
 from torch.nn.parameter import Parameter
 import torchvision.transforms.functional as TF
 from vit import VisionTransformer
-import cv2
 
 from advertorch import attacks
 from deepfool import deepfool
@@ -80,7 +79,6 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6.0):
             data16x16 = torch.nn.functional.interpolate(data, size=(16, 16), mode='bilinear', align_corners=False)
             data = data16x16
         
-        # TODO Fix epsilon values for all the following attacks
         if attack == 'sta':
             sta = attacks.SpatialTransformAttack(model, num_classes=10)
             pert_image = sta.perturb(data)
@@ -100,7 +98,8 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6.0):
             r, loop_i, label_orig, label_pert, pert_image = deepfool(data.clone().detach().requires_grad_(True),
                                                                      model,
                                                                      max_iter=deepfool_params['iters'],
-                                                                     max_perturb=max_perturb)
+                                                                     max_perturb=max_perturb,
+                                                                     TI=deepfool_params['TI'])
         elif attack == 'pgd':
             pert_image = pgd_attack(data, target)
         elif attack == 'mifgsm':
@@ -150,25 +149,6 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6.0):
             if norm > max_perturb:
                 norms.append(norm)
 
-            #image_a = np.moveaxis(a.clone().cpu().detach().numpy(), 0, -1)
-            #image_b = np.moveaxis(b.clone().cpu().detach().numpy(), 0, -1)
-
-            # Unnormalize image in order to save
-            #image_a -= image_a.min(); image_b -= image_b.min()
-            #image_a /= image_a.max(); image_b /= image_b.max()
-
-            #image_a *= 255; image_b *= 255
-
-            # Check perturbations > max value
-            #sub = np.subtract(image_a, image_b)
-            #print(sub.max())
-            #norm = np.linalg.norm(np.ravel(sub), ord=np.inf)
-            #if norm > max_perturb:
-            #    norms.append(norm)
-
-            # save image
-            #cv2.imwrite(os.path.join(output, '{}.jpg'.format(i+1)), image_b)
-
     return 100. * float(correct) / len(test_loader.dataset), 100. * float(avg_act) / len(test_loader.dataset), norms
 
 
@@ -181,11 +161,11 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         attack = sys.argv[1]
     else:
-        attack = 'pgd'
+        attack = 'deepfool'
 
     defend = False
-    pgd_params = {'norm': 'inf', 'eps': max_perturbation, 'alpha': 1, 'iterations': 10, 'TI': False}
-    deepfool_params = {"iters" : 50}
+    pgd_params = {'norm': 'inf', 'eps': max_perturbation, 'alpha': 1, 'iterations': 10, 'TI': True}
+    deepfool_params = {"iters" : 50, 'TI': True}
 
     model = NN()
     model.cuda()      

@@ -6,10 +6,12 @@ from torch.autograd import Variable
 import torch as torch
 import copy
 from torch.autograd.gradcheck import zero_gradients
+from utils import GaussianSmooth
 
-def deepfool(images, model, num_classes=10, overshoot=0.02, max_iter=50, max_perturb=6.0):
+def deepfool(images, model, num_classes=10, overshoot=0.02, max_iter=50, max_perturb=6.0, TI=False):
 
     """
+    Only L inf norm
        :param image: Image of size HxWx3
        :param model: network (input: images, output: values of activation **BEFORE** softmax).
        :param num_classes: num_classes (limits the number of classes to test against, by default = 10)
@@ -20,6 +22,8 @@ def deepfool(images, model, num_classes=10, overshoot=0.02, max_iter=50, max_per
 
     # scale perturbation magnitude constraint
     max_perturb = (max_perturb / 255.0) / 0.5
+    if TI:
+        smoothing = GaussianSmooth(3, 3)
 
     loops = []; pert_images = []; label_orig = []; label_pert = []
     for image_batch in range(images.shape[0]): 
@@ -73,6 +77,8 @@ def deepfool(images, model, num_classes=10, overshoot=0.02, max_iter=50, max_per
             r_tot = np.float32(r_tot + r_i)
 
             pert_image = image + (1+overshoot)*torch.from_numpy(r_tot).cuda()
+            if TI:
+                pert_image = smoothing(pert_image)
             pert_image = torch.max(torch.min(pert_image, image + max_perturb), image - max_perturb)
 
             # constrain perturbation
