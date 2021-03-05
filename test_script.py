@@ -37,7 +37,7 @@ class NN(nn.Module):
     def forward(self,x):
         return self.model(x)
 
-def test(model, attack=None, defend=False, output='Results', max_perturb=6):
+def test(model, attack=None, defend=False, output='Results', max_perturb=6.0):
     model.eval()
     correct = 0
     avg_act = 0
@@ -46,15 +46,13 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6):
     mean = (0.5, 0.5, 0.5)
     std = (0.5, 0.5, 0.5)
 
-    iterations = int(100 / batch_size) + 1
+    iterations = int(100 / batch_size)
 
     test_loader = torch.utils.data.DataLoader(torchvision.datasets.CIFAR10(root=ROOT, train=False, 
                             transform=transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)]), download=True),
                             batch_size=batch_size,
                             shuffle=False,
-                            num_workers=4
-                        )
-
+                            num_workers=4)
 
     if attack == 'pgd':
         pgd_attack = PGD(model, "cuda:0",
@@ -62,17 +60,21 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6):
                         eps=pgd_params['eps'],
                         alpha=pgd_params['alpha'],
                         iters=pgd_params['iterations'])
+
     elif attack == 'mifgsm':
         mifgsm = MIFGSM(model, loss_fn=nn.CrossEntropyLoss(),
                         mean=mean, std=std, 
-                        max_norm=6.0)
+                        max_norm=max_perturb)
 
     original_image = []; perturb_image = []
     for i, (data, target) in enumerate(test_loader): # tqdm(test_loader)
+        if i == iterations:
+            break
+
         data = data.cuda()
         target = target.cuda()
         if defend:
-            data16x16 = torch.nn.functional.interpolate(data, size=(16, 16),mode='bilinear', align_corners=False)
+            data16x16 = torch.nn.functional.interpolate(data, size=(16, 16), mode='bilinear', align_corners=False)
             data = data16x16
         
         # TODO Fix epsilon values for all the following attacks
@@ -104,9 +106,7 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6):
             out = torch.nn.Softmax(dim=1).cuda()(model(pert_image))
                     
         act, pred = out.max(1)
-        # Sanity check
-        # assert (label_orig == target.detach().cpu().numpy()).all()
-        # assert (label_pert == pred.detach().cpu().numpy()).all()
+
         correct += pred.eq(target.view_as(pred)).sum()
         avg_act += act.sum().data
 
@@ -114,48 +114,67 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6):
         perturb_image.append(pert_image.cpu().detach())
             
         assert len(original_image) == len(perturb_image)
-        if i == iterations: break
     
     original_image = torch.cat(original_image, dim=0)
     perturb_image = torch.cat(perturb_image, dim=0)
 
-    
     norms = []
     for i in range(len(original_image)):
         a = original_image[i]
         b = perturb_image[i]
-        
-        # sub = torch.subtract(a, b)
-        # norms.append(torch.norm(sub)) # p=np.inf
 
         if output:
             if not os.path.exists(output):
                 os.mkdir(output)
 
-            image_a = np.moveaxis(a.clone().cpu().detach().numpy(), 0, -1)
-            image_b = np.moveaxis(b.clone().cpu().detach().numpy(), 0, -1)
-            # Unnormalize image in order to save
-            image_a -= image_a.min(); image_b -= image_b.min() 
-            image_a /= image_a.max(); image_b /= image_b.max()
-            image_a *= 255; image_b *= 255
-            
-            # Check perturbations > max value
-            sub = np.subtract(image_a, image_b)
-            norm = np.linalg.norm(np.ravel(sub), ord=np.inf)
+            # de-normalize
+            a = (a * std[0]) + mean[0]
+            b = (b * std[0]) + mean[0]
+
+            # save image (this function multiples by 255 and transposes)
+            torchvision.utils.save_image(b, os.path.join(output, '{}.png'.format(i+1)))
+
+            # mult by 255 before checking magnitude constraints
+            a *= 255.0
+            b *= 255.0
+
+            sub = b - a
+            #print(sub.max().data)
+
+            norm = np.linalg.norm(np.ravel(sub.cpu().detach().numpy()), ord=np.inf)
             if norm > max_perturb:
                 norms.append(norm)
-            cv2.imwrite(os.path.join(output, '{}.jpg'.format(i)), image_b)
+
+            #image_a = np.moveaxis(a.clone().cpu().detach().numpy(), 0, -1)
+            #image_b = np.moveaxis(b.clone().cpu().detach().numpy(), 0, -1)
+
+            # Unnormalize image in order to save
+            #image_a -= image_a.min(); image_b -= image_b.min()
+            #image_a /= image_a.max(); image_b /= image_b.max()
+
+            #image_a *= 255; image_b *= 255
+
+            # Check perturbations > max value
+            #sub = np.subtract(image_a, image_b)
+            #print(sub.max())
+            #norm = np.linalg.norm(np.ravel(sub), ord=np.inf)
+            #if norm > max_perturb:
+            #    norms.append(norm)
+
+            # save image
+            #cv2.imwrite(os.path.join(output, '{}.jpg'.format(i+1)), image_b)
 
     return 100. * float(correct) / len(test_loader.dataset), 100. * float(avg_act) / len(test_loader.dataset), norms
 
 
-if __name__=="__main__":
-    
+if __name__ == "__main__":
     # attack = ['sta', 'jacobian', 'carlini', 'lbfgs', 'pixel', 'pgd', 'deepfool', 'mifgsm']
     # Carlini attack takes v long
+
+    max_perturbation = 6.0
     attack = 'pgd'
     defend = False
-    pgd_params = {'norm': 'inf', 'eps': 6, 'alpha': 1, 'iterations': 20}
+    pgd_params = {'norm': 'inf', 'eps': max_perturbation, 'alpha': 1, 'iterations': 20}
 
     model = NN()
     model.cuda()      
@@ -166,7 +185,10 @@ if __name__=="__main__":
         del chk
     torch.cuda.empty_cache()
 
-    acc, _, norms = test(model, attack, defend, 'Results_{}'.format(attack))
+    acc, _, norms = test(model, attack, defend, 'Results_{}'.format(attack), max_perturbation)
 
+    print("--------- Using defense: {} ---------".format(defend))
     print('--------- Test accuracy on {} attack: {} ---------'.format(attack, acc))
-    print('--------- Perturbation norm that go beyond 6: {} ---------'.format(len(norms)))
+    print('--------- Perturbation norm that go beyond {}: {} ---------'.format(max_perturbation, len(norms)))\
+
+    print(norms)

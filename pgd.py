@@ -3,17 +3,19 @@ import torch.nn as nn
 import numpy as np
 
 class PGD(nn.Module):
-    def __init__(self, model, device, norm, eps, alpha, iters):
+    def __init__(self, model, device, norm, eps, alpha, iters, mean=0.5, std=0.5):
         super(PGD, self).__init__()
         assert(2 <= eps <= 10)
         assert(norm in [2, 'inf', np.inf])
-        self.eps = eps / 255.0
-        self.alpha = alpha
+        self.eps = (eps / 255.0) / std
+        self.alpha = (alpha / 255.0) / std
         self.norm = norm
         self.iterations = iters
         self.loss = nn.CrossEntropyLoss()
         self.model = model
         self.device = device
+        self.lower_lim = (0.0 - mean) / std
+        self.upper_lim = (1.0 - mean) / std
 
     def forward(self, images, labels):
         adv = images.clone().detach().requires_grad_(True).to(self.device)
@@ -53,8 +55,8 @@ class PGD(nn.Module):
 
                 adv = images + delta
 
-            adv = adv.clamp(0.0, 1.0)
+            adv = adv.clamp(self.lower_lim, self.upper_lim)
 
-            return adv.detach()
+        return adv.detach()
 
 
