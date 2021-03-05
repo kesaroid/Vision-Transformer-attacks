@@ -14,8 +14,10 @@ class MIFGSM():
         self.model = model
         self.loss_fn = loss_fn
 
-        mean = np.array(mean); std = np.array(std)
-        clip_min = (0 - mean) / std; clip_max = (1 - mean) / std
+        mean = np.array(mean)
+        std = np.array(std)
+        clip_min = (0 - mean) / std
+        clip_max = (1 - mean) / std
 
         channel = mean.shape[0]
         self.mean = torch.Tensor(mean).reshape([channel, 1, 1]).cuda()
@@ -86,7 +88,6 @@ class MIFGSM():
                 delta = l2_clamp(delta, max_norm)
 
             elif norm_type == 'linf':
-                
                 grad = grad * momentum + noise
                 noise = torch.sign(grad)
                 # constraint1 : force to satisfy the max norm constaint

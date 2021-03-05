@@ -7,7 +7,7 @@ import torch as torch
 import copy
 from torch.autograd.gradcheck import zero_gradients
 
-def deepfool(images, model, num_classes=10, overshoot=0.02, max_iter=50):
+def deepfool(images, model, num_classes=10, overshoot=0.02, max_iter=50, max_perturb=6.0):
 
     """
        :param image: Image of size HxWx3
@@ -17,7 +17,10 @@ def deepfool(images, model, num_classes=10, overshoot=0.02, max_iter=50):
        :param max_iter: maximum number of iterations for deepfool (default = 50)
        :return: minimal perturbation that fools the classifier, number of iterations that it required, new estimated_label and perturbed image
     """
-    
+
+    # scale perturbation magnitude constraint
+    max_perturb = (max_perturb / 255.0) / 0.5
+
     loops = []; pert_images = []; label_orig = []; label_pert = []
     for image_batch in range(images.shape[0]): 
         image = torch.unsqueeze(images[image_batch], dim=0)
@@ -66,10 +69,13 @@ def deepfool(images, model, num_classes=10, overshoot=0.02, max_iter=50):
 
             # compute r_i and r_tot
             # Added 1e-4 for numerical stability
-            r_i =  (pert+1e-4) * w / np.linalg.norm(w)
+            r_i = (pert+1e-4) * w / np.linalg.norm(w)
             r_tot = np.float32(r_tot + r_i)
 
             pert_image = image + (1+overshoot)*torch.from_numpy(r_tot).cuda()
+            pert_image = torch.max(torch.min(pert_image, image + max_perturb), image - max_perturb)
+
+            # constrain perturbation
 
             x = Variable(pert_image, requires_grad=True)
             fs = model.forward(x)
