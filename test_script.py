@@ -63,10 +63,10 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6.0):
                         TI=pgd_params['TI'])
 
     elif attack == 'mifgsm':
-        mifgsm = MIFGSM(model, loss_fn=nn.CrossEntropyLoss(),
-                        mean=mean, std=std, 
-                        max_norm=max_perturb,
-                        norm_type='linf')
+        mifgsm_attack = MIFGSM(model, "cuda:0",
+                               eps=mifgsm_params['eps'], 
+                               steps=mifgsm_params['steps'], 
+                               decay=mifgsm_params['decay'])
 
     original_image = []; perturb_image = []
     for i, (data, target) in enumerate(test_loader): # tqdm(test_loader)
@@ -103,7 +103,7 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6.0):
         elif attack == 'pgd':
             pert_image = pgd_attack(data, target)
         elif attack == 'mifgsm':
-            pert_image = mifgsm.attack(data, target)
+            pert_image = mifgsm_attack(data, target)
 
         with torch.no_grad():
             if not attack: 
@@ -161,11 +161,12 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         attack = sys.argv[1]
     else:
-        attack = 'deepfool'
+        attack = 'mifgsm'
 
     defend = False
     pgd_params = {'norm': 'inf', 'eps': max_perturbation, 'alpha': 1, 'iterations': 10, 'TI': True}
     deepfool_params = {"iters" : 50, 'TI': True}
+    mifgsm_params = {'eps': max_perturbation, 'steps': 5, 'decay': 1.0}
 
     model = NN()
     model.cuda()      
