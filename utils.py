@@ -6,10 +6,14 @@ import scipy.stats as st
 import numpy as np
 
 class GaussianSmooth(nn.Module):
-    """Gaussian Smoothing function, also used in generating translatin invariant adversarial examples
-            Arguments:  
-                kernlen: (2k + 1) Kernel size: k
-                nsig: upper and lower limits of gaussian kernel"""
+    """
+        Gaussian Smoothing function, also used in generating translatin invariant adversarial examples
+        Arguments:  
+            kernlen: (2k + 1) Kernel size: k
+            nsig: upper and lower limits of gaussian kernel
+            
+    """
+
     def __init__(self, kernlen=21, nsig=3):
         super(GaussianSmooth, self).__init__()
         self.kernlen = kernlen
