@@ -54,7 +54,7 @@ def test(model, defend=False, output='Results', max_perturb=6.0):
                                                                            transform=transforms.Compose(
                                                                                [transforms.ToTensor(),
                                                                                 transforms.Normalize(mean, std)]),
-                                                                           download=True),
+                                                                           download=False),
                                               batch_size=batch_size,
                                               shuffle=False,
                                               num_workers=4)

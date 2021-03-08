@@ -50,7 +50,7 @@ def test(model, defend=False, output='Results', max_perturb=6.0):
     attacker = None
 
     test_loader = torch.utils.data.DataLoader(torchvision.datasets.CIFAR10(root=ROOT, train=False, 
-                            transform=transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)]), download=True),
+                            transform=transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)]), download=False),
                             batch_size=batch_size,
                             shuffle=False,
                             num_workers=4)
