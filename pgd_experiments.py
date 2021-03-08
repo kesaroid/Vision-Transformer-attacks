@@ -186,7 +186,7 @@ if __name__ == "__main__":
 
     TIs = [False, True]
     defenses = [False, True]
-    max_perturbations = [i for i in range(2, 6)]
+    max_perturbations = [i for i in range(2, 7)]
     iterations = [i for i in range(1, 12, 2)]
 
     defend = False
