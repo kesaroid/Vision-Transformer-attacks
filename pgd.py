@@ -19,9 +19,11 @@ class PGD(nn.Module):
         self.lower_lim = (0.0 - mean) / std
         self.upper_lim = (1.0 - mean) / std
         self.TI = TI
-        
         if self.TI:
-            self.smoothing = GaussianSmooth(3, 3)
+            k = 5
+            w = 2*k + 1
+            sig = k / np.sqrt(3)
+            self.smoothing = GaussianSmooth(w, sig)
 
     def forward(self, images, labels):
         adv = images.clone().detach().requires_grad_(True).to(self.device)

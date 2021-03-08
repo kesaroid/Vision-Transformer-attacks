@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import numpy as np
+from utils import GaussianSmooth
 
 
 class MIFGSM(nn.Module):
@@ -22,7 +23,7 @@ class MIFGSM(nn.Module):
 
     """
 
-    def __init__(self, model, device, eps=6.0, steps=5, decay=1.0, mean=0.5, std=0.5, alpha=1):
+    def __init__(self, model, device, eps=6.0, steps=5, decay=1.0, mean=0.5, std=0.5, alpha=1, TI=False, k_=0):
         super(MIFGSM, self).__init__()
         self.model = model
         self.eps = (eps / 255.0) / std
@@ -31,6 +32,12 @@ class MIFGSM(nn.Module):
         self.device = device
         self._targeted = -1
         self.alpha = alpha
+        self.TI = TI
+        if self.TI:
+            k = k_
+            w = 2*k + 1
+            sig = k / np.sqrt(3)
+            self.smoothing = GaussianSmooth(w, sig)
 
     def forward(self, images, labels):
         images = images.clone().detach().to(self.device)
@@ -50,7 +57,10 @@ class MIFGSM(nn.Module):
             
             grad = torch.autograd.grad(cost, adv_images, 
                                        retain_graph=False, create_graph=False)[0]
-            
+
+            if self.TI:
+                grad = self.smoothing(grad)
+
             grad_norm = torch.norm(nn.Flatten()(grad), p=1, dim=1)
             grad = grad / grad_norm.view([-1]+[1]*(len(grad.shape)-1))
             grad = grad + momentum*self.decay

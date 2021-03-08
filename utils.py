@@ -23,6 +23,8 @@ class GaussianSmooth(nn.Module):
         self.stack_kernel = np.stack([kernel, kernel, kernel])
         self.stack_kernel = np.expand_dims(self.stack_kernel, 0)
         self.stack_kernel = torch.from_numpy(self.stack_kernel).cuda()
+        print('using TI with kernel size ', self.stack_kernel.size(-1))
+        self.stride = 1
     
     def gkern(self):
         """Returns a 2D Gaussian kernel array."""
@@ -33,7 +35,8 @@ class GaussianSmooth(nn.Module):
         return kernel    
 
     def forward(self, x):
-        noise = F.conv2d(x, self.stack_kernel, stride=1, padding=1)
+        padding = int((((self.stride - 1) * x.size(-1) - self.stride + self.stack_kernel.size(-1)) / 2) + 0.5)
+        noise = F.conv2d(x, self.stack_kernel, stride=self.stride, padding=padding)
         noise = noise / torch.mean(torch.abs(noise), [1, 2, 3], keepdim=True)
         x = x + noise        
         return x
