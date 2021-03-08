@@ -16,7 +16,6 @@ import torch.nn.init as nninit
 from torch.nn.parameter import Parameter
 import torchvision.transforms.functional as TF
 from vit import VisionTransformer
-import cv2
 
 from advertorch import attacks
 from deepfool import deepfool
@@ -39,7 +38,7 @@ class NN(nn.Module):
         return self.model(x)
 
 
-def test(model, attack=None, defend=False, output='Results', max_perturb=6.0):
+def test(model, defend=False, output='Results', max_perturb=6.0):
     model.eval()
     correct = 0
     avg_act = 0
@@ -49,6 +48,7 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6.0):
     std = (0.5, 0.5, 0.5)
 
     iterations = int(100 / batch_size)
+    attacker = None
 
     test_loader = torch.utils.data.DataLoader(torchvision.datasets.CIFAR10(root=ROOT, train=False,
                                                                            transform=transforms.Compose(
@@ -60,20 +60,20 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6.0):
                                               num_workers=4)
 
     if attack == 'pgd':
-        pgd_attack = PGD(model, "cuda:0",
-                         norm=pgd_params['norm'],
-                         eps=pgd_params['eps'],
-                         alpha=pgd_params['alpha'],
-                         iters=pgd_params['iterations'],
-                         TI=pgd_params['TI'])
+        attacker = PGD(model, "cuda:0",
+                       norm=pgd_params['norm'],
+                       eps=pgd_params['eps'],
+                       alpha=pgd_params['alpha'],
+                       iters=pgd_params['iterations'],
+                       TI=pgd_params['TI'])
 
     elif attack == 'mifgsm':
-        mifgsm = MIFGSM(model, loss_fn=nn.CrossEntropyLoss(),
-                        mean=mean, std=std,
-                        max_norm=max_perturb,
-                        norm_type='linf')
+        attacker = MIFGSM(model, "cuda:0",
+                          eps=mifgsm_params['eps'],
+                          steps=mifgsm_params['steps'],
+                          decay=mifgsm_params['decay'])
 
-    original_image = []
+    original_image = [];
     perturb_image = []
     for i, (data, target) in enumerate(test_loader):  # tqdm(test_loader)
         if i == iterations:
@@ -83,40 +83,18 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6.0):
         target = target.cuda()
         if defend:
             data16x16 = torch.nn.functional.interpolate(data, size=(16, 16), mode='bilinear', align_corners=False)
-            data = data16x16
+            pert_16x16 = get_adversary(model, data, target, attacker)
 
-        # TODO Fix epsilon values for all the following attacks
-        if attack == 'sta':
-            sta = attacks.SpatialTransformAttack(model, num_classes=10)
-            pert_image = sta.perturb(data)
-        elif attack == 'jacobian':
-            jacobian = attacks.JacobianSaliencyMapAttack(model, num_classes=10)
-            pert_image = jacobian.perturb(data, target)
-        elif attack == 'carlini':
-            carlini = attacks.CarliniWagnerL2Attack(model, num_classes=10)
-            pert_image = carlini.perturb(data)
-        elif attack == 'lbfgs':
-            lbfgs = attacks.LBFGSAttack(model, num_classes=10, batch_size=data.shape[0])
-            pert_image = lbfgs.perturb(data)
-        elif attack == 'pixel':
-            pixel = attacks.SinglePixelAttack(model)
-            pert_image = pixel.perturb(data)
-        elif attack == 'deepfool':
-            r, loop_i, label_orig, label_pert, pert_image = deepfool(data.clone().detach().requires_grad_(True),
-                                                                     model,
-                                                                     max_iter=50,
-                                                                     max_perturb=max_perturb)
-        elif attack == 'pgd':
-            pert_image = pgd_attack(data, target)
-        elif attack == 'mifgsm':
-            pert_image = mifgsm.attack(data, target)
+        pert_image = get_adversary(model, data, target, attacker)
 
         with torch.no_grad():
-            if not attack:
-                pert_image = data
             out = torch.nn.Softmax(dim=1).cuda()(model(pert_image))
+            act, pred = out.max(1)
+            if defend:
+                defence_out = torch.nn.Softmax(dim=1).cuda()(model(pert_16x16))
+                d_act, d_pred = defence_out.max(1)
 
-        act, pred = out.max(1)
+                assert (pred == d_pred)  # This it?
 
         correct += pred.eq(target.view_as(pred)).sum()
         avg_act += act.sum().data
@@ -134,28 +112,67 @@ def test(model, attack=None, defend=False, output='Results', max_perturb=6.0):
         a = original_image[i]
         b = perturb_image[i]
 
-        if not os.path.exists(output):
-            os.mkdir(output)
+        if output:
+            if not os.path.exists(output):
+                os.mkdir(output)
 
-        # de-normalize
-        a = (a * std[0]) + mean[0]
-        b = (b * std[0]) + mean[0]
+            # de-normalize
+            a = (a * std[0]) + mean[0]
+            b = (b * std[0]) + mean[0]
 
-        # mult by 255 before checking magnitude constraints
-        a = a.mul(255).add_(0.5).clamp_(0, 255)
-        b = b.mul(255).add_(0.5).clamp_(0, 255)
+            # save image (this function multiples by 255 and transposes)
+            torchvision.utils.save_image(b, os.path.join(output, '{}.png'.format(i + 1)))
 
-        sub = b - a
+            # mult by 255 before checking magnitude constraints
+            a = a.mul(255).add_(0.5).clamp_(0, 255)
+            b = b.mul(255).add_(0.5).clamp_(0, 255)
 
-        norm = np.linalg.norm(np.ravel(sub.numpy()), ord=np.inf)
-        if norm > max_perturb:
-            norms.append(norm)
+            sub = b - a
+
+            norm = np.linalg.norm(np.ravel(sub.numpy()), ord=np.inf)
+            if norm > max_perturb:
+                norms.append(norm)
 
     return 100. * float(correct) / len(test_loader.dataset), 100. * float(avg_act) / len(test_loader.dataset), norms
 
 
+def get_adversary(model, data, target, attacker=None):
+    if attack == 'sta':
+        sta = attacks.SpatialTransformAttack(model, num_classes=10)
+        pert_image = sta.perturb(data)
+    elif attack == 'jacobian':
+        jacobian = attacks.JacobianSaliencyMapAttack(model, num_classes=10)
+        pert_image = jacobian.perturb(data, target)
+    elif attack == 'carlini':
+        carlini = attacks.CarliniWagnerL2Attack(model, num_classes=10)
+        pert_image = carlini.perturb(data)
+    elif attack == 'lbfgs':
+        lbfgs = attacks.LBFGSAttack(model, num_classes=10, batch_size=data.shape[0])
+        pert_image = lbfgs.perturb(data)
+    elif attack == 'pixel':
+        pixel = attacks.SinglePixelAttack(model)
+        pert_image = pixel.perturb(data)
+    elif attack == 'deepfool':
+        r, loop_i, label_orig, label_pert, pert_image = deepfool(data.clone().detach().requires_grad_(True),
+                                                                 model,
+                                                                 max_iter=deepfool_params['iters'],
+                                                                 max_perturb=deepfool_params['eps'],
+                                                                 TI=deepfool_params['TI'])
+    elif attack == 'pgd':
+        pert_image = attacker(data, target)
+    elif attack == 'mifgsm':
+        pert_image = attacker(data, target)
+    else:
+        pert_image = data
+
+    return pert_image
+
+
 if __name__ == "__main__":
     attack = 'pgd'
+
+    deepfool_params = {"iters": 5, 'eps': 6, 'TI': False}
+    mifgsm_params = {'eps': 6, 'steps': 2, 'decay': 1.0}
 
     model = NN()
     model.cuda()
@@ -170,25 +187,27 @@ if __name__ == "__main__":
     TIs = [False, True]
     defenses = [False, True]
     max_perturbations = [i for i in range(2, 6)]
-    iterations = [i for i in range(1, 11)]
+    iterations = [i for i in range(1, 12, 2)]
+
+    defend = False
+    TI = False
+    alpha = 1
+
+    print(attack)
+    print('defend: {} TI: {}'.format(defend, TI))
 
     # run all experiments
-    for defend in defenses:
-        for max_perturbation in max_perturbations:
-            for iteration in iterations:
-                for alpha in range(1, max_perturbation):
-                    for TI in TIs:
+    for max_perturbation in max_perturbations:
+        for iteration in iterations:
+            print('epsilon: {} iterations: {}'.format(max_perturbation, iteration))
 
-                        print('<----------- PGD with defend={} epsilon={} step={} TI={} iterations={} ----------->'.
-                              format(defend, max_perturbation, alpha, TI, iteration), flush=True)
+            pgd_params = {'norm': 'inf',
+                          'eps': max_perturbation,
+                          'alpha': alpha,
+                          'iterations': iteration,
+                          'TI': TI}
 
-                        pgd_params = {'norm': 'inf',
-                                      'eps': max_perturbation,
-                                      'alpha': alpha,
-                                      'iterations': iteration,
-                                      'TI': TI}
+            acc, _, norms = test(model, defend, 'Results_{}'.format(attack), max_perturbation)
 
-                        acc, _, norms = test(model, attack, defend, 'Results_{}'.format(attack), max_perturbation)
-
-                        print('--------- Test accuracy on {} attack: {} ---------'.format(attack, acc))
-                        print('--------- Perturbs beyond {}: {} ---------'.format(max_perturbation, len(norms)))
+            print('--------- Test accuracy on {} attack: {} ---------'.format(attack, acc))
+           # print('--------- Perturbs beyond {}: {} ---------'.format(max_perturbation, len(norms)))

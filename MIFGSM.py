@@ -22,7 +22,7 @@ class MIFGSM(nn.Module):
 
     """
 
-    def __init__(self, model, device, eps=6.0, steps=5, decay=1.0, mean=0.5, std=0.5):
+    def __init__(self, model, device, eps=6.0, steps=5, decay=1.0, mean=0.5, std=0.5, alpha=1):
         super(MIFGSM, self).__init__()
         self.model = model
         self.eps = (eps / 255.0) / std
@@ -30,7 +30,7 @@ class MIFGSM(nn.Module):
         self.decay = decay
         self.device = device
         self._targeted = -1
-        self.alpha = self.eps / self.steps
+        self.alpha = alpha
 
     def forward(self, images, labels):
         images = images.clone().detach().to(self.device)
